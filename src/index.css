@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --forge-bg: #0a0a0a;
+  --forge-surface: #111111;
+  --forge-border: #1e1e1e;
+  --forge-border-bright: #2e2e2e;
+  --forge-text: #e8e6e3;
+  --forge-muted: #666660;
+  --forge-accent: #c8a96e;
+  --forge-accent-dim: #8a6f3e;
+  --forge-green: #4a9463;
+  --forge-red: #c0503a;
+  --forge-blue: #4a7fa5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--forge-bg);
+  color: var(--forge-text);
+  font-family: 'DM Sans', sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--forge-bg); }
+::-webkit-scrollbar-thumb { background: var(--forge-border-bright); border-radius: 2px; }
+::selection { background: var(--forge-accent-dim); color: var(--forge-text); }
+
+.forge-mono { font-family: 'JetBrains Mono', monospace; }
+.forge-display { font-family: 'Syne', sans-serif; }
