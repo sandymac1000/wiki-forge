@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Inbox } from './components/Inbox.jsx'
 import { Vault } from './components/Vault.jsx'
 import { Runner } from './components/Runner.jsx'
 import { Variants } from './components/Variants.jsx'
@@ -6,6 +7,7 @@ import { Improvements } from './components/Improvements.jsx'
 import { Registry } from './components/Registry.jsx'
 
 const TABS = [
+  { id: 'inbox',        label: 'Inbox',        glyph: '⊕' },
   { id: 'vault',        label: 'Vault',        glyph: '◈' },
   { id: 'runner',       label: 'Runner',       glyph: '▶' },
   { id: 'variants',     label: 'Variants',     glyph: '⌥' },
@@ -88,6 +90,7 @@ export default function App() {
         </div>
       </header>
       <main style={{ flex: 1, overflow: 'hidden' }}>
+        {tab === 'inbox'        && <Inbox />}
         {tab === 'vault'        && <Vault />}
         {tab === 'runner'       && <Runner />}
         {tab === 'variants'     && <Variants />}
