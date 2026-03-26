@@ -13,13 +13,13 @@ export async function listVault(path = '') {
 }
 
 export async function readFile(path) {
-  const res = await fetch(`${BASE}/vault/${encodeURIComponent(path)}`, { headers })
+  const res = await fetch(`${BASE}/vault/${path}`, { headers })
   if (!res.ok) throw new Error(`Read failed: ${res.status}`)
   return res.text()
 }
 
 export async function writeFile(path, content) {
-  const res = await fetch(`${BASE}/vault/${encodeURIComponent(path)}`, {
+  const res = await fetch(`${BASE}/vault/${path}`, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': 'text/markdown' },
     body: content,
@@ -29,7 +29,7 @@ export async function writeFile(path, content) {
 }
 
 export async function deleteFile(path) {
-  const res = await fetch(`${BASE}/vault/${encodeURIComponent(path)}`, {
+  const res = await fetch(`${BASE}/vault/${path}`, {
     method: 'DELETE',
     headers,
   })

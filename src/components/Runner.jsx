@@ -56,27 +56,44 @@ export function Runner() {
   }
 
   const handleRun = async () => {
-    if (!selected || streaming) return
-    setOutput('')
-    setStreaming(true)
-    setSaved(false)
-    setRating(null)
+  if (!selected || streaming) return
+  setOutput('')
+  setStreaming(true)
+  setSaved(false)
+  setRating(null)
 
+  try {
+    // Load context files
+    let context = ''
     try {
-      await runPrompt({
-        system: promptContent,
-        user: userInput || 'Begin.',
-        temperature,
-        onChunk: (chunk, full) => {
-          setOutput(full)
-          if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
-        }
-      })
-    } catch (e) {
-      setOutput(`Error: ${e.message}`)
-    }
-    setStreaming(false)
+      const sandy = await readFile('prompts/_context/sandy.md')
+      const sandyClean = stripFrontmatter(sandy).trim()
+      context += `## About the user\n${sandyClean}\n\n`
+    } catch {}
+    try {
+      const personas = await readFile('prompts/_context/personas.md')
+      const personasClean = stripFrontmatter(personas).trim()
+      context += `## Available personas\n${personasClean}\n\n`
+    } catch {}
+
+    const systemPrompt = context
+      ? `${context}---\n\n## Prompt\n${promptContent}`
+      : promptContent
+
+    await runPrompt({
+      system: systemPrompt,
+      user: userInput || 'Begin.',
+      temperature,
+      onChunk: (chunk, full) => {
+        setOutput(full)
+        if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
+      }
+    })
+  } catch (e) {
+    setOutput(`Error: ${e.message}`)
   }
+  setStreaming(false)
+}
 
   const handleSaveRating = async () => {
     if (!selected || rating === null) return
