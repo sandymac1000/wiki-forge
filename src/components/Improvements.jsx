@@ -38,14 +38,3 @@ export function Improvements() {
     />
   )
 }
-
-export function Registry() {
-  return (
-    <Placeholder
-      glyph="≡"
-      title="Registry"
-      description="Table view across all prompts and variants. Filter by rating, template type, last used. Your prompt portfolio at a glance."
-      status="session 2"
-    />
-  )
-}
