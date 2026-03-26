@@ -17,6 +17,12 @@ const TABS = [
 
 export default function App() {
   const [tab, setTab] = useState('vault')
+  const [navState, setNavState] = useState({})
+
+  const navigateTo = (newTab, state = {}) => {
+    setNavState(state)
+    setTab(newTab)
+  }
 
   return (
     <div style={{ background: 'var(--forge-bg)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -54,7 +60,7 @@ export default function App() {
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => navigateTo(t.id)}
               style={{
                 background: 'none',
                 border: 'none',
@@ -90,12 +96,12 @@ export default function App() {
         </div>
       </header>
       <main style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'inbox'        && <Inbox />}
-        {tab === 'vault'        && <Vault />}
-        {tab === 'runner'       && <Runner />}
-        {tab === 'variants'     && <Variants />}
-        {tab === 'improvements' && <Improvements />}
-        {tab === 'registry'     && <Registry />}
+        {tab === 'inbox'        && <Inbox navigateTo={navigateTo} />}
+        {tab === 'vault'        && <Vault navigateTo={navigateTo} />}
+        {tab === 'runner'       && <Runner navigateTo={navigateTo} navState={navState} />}
+        {tab === 'variants'     && <Variants navigateTo={navigateTo} />}
+        {tab === 'improvements' && <Improvements navigateTo={navigateTo} />}
+        {tab === 'registry'     && <Registry navigateTo={navigateTo} />}
       </main>
     </div>
   )
