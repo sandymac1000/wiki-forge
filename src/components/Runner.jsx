@@ -325,7 +325,23 @@ export function Runner({ navigateTo, navState }) {
         return [...files, ...nested.flat()]
       }
       const all = await walk('prompts/')
-      setTemplates(all.filter(p => !p.includes('/_context/') && !p.includes('/_archive/')))
+      const filtered = all.filter(p => !p.includes('/_context/') && !p.includes('/_archive/'))
+      const withLabels = await Promise.all(filtered.map(async p => {
+        if (p.includes('/_variants/')) {
+          try {
+            const raw = await readFile(p)
+            const fm = parseFrontmatter(raw)
+            const parts = p.replace('prompts/_variants/', '').replace('.md', '').split('/')
+            return { path: p, label: `${parts[0]} / ${fm.label || parts[1]}`, isVariant: true }
+          } catch { return { path: p, label: p.replace('prompts/', ''), isVariant: true } }
+        }
+        try {
+          const raw = await readFile(p)
+          const fm = parseFrontmatter(raw)
+          return { path: p, label: fm.title || p.replace('prompts/', '').replace('.md',''), isVariant: false }
+        } catch { return { path: p, label: p.replace('prompts/', ''), isVariant: false } }
+      }))
+      setTemplates(withLabels)
     }
     loadTemplates().catch(console.error)
   }, [])
@@ -381,7 +397,19 @@ export function Runner({ navigateTo, navState }) {
       const userContext = buildContext(contextFields)
       if (userContext) parts.push(`## Context\n${userContext}`)
 
-      const userMsg = parts.length > 0 ? parts.join('\n\n') : 'Begin.'
+        const needsMaterials = !paperMeta && (
+          promptContent.toLowerCase().includes('paper') ||
+          promptContent.toLowerCase().includes('document') ||
+          promptContent.toLowerCase().includes('material') ||
+          promptContent.toLowerCase().includes('report') ||
+          promptContent.toLowerCase().includes('pdf')
+        )
+
+        const userMsg = parts.length > 0
+          ? parts.join('\n\n')
+          : needsMaterials
+            ? '---\nNOTE: No document has been provided. Before proceeding, ask the user to share the paper, report or materials needed to complete this task. Do not attempt to answer without them.\n---'
+            : 'Begin.'
 
       await runPrompt({
         system: systemPrompt,
@@ -420,9 +448,16 @@ export function Runner({ navigateTo, navState }) {
         <Label>prompt</Label>
         <select value={selected || ''} onChange={e => handleSelect(e.target.value)} style={selectStyle}>
           <option value="">— select —</option>
-          {templates.map(t => (
-            <option key={t} value={t}>{t.replace('prompts/', '')}</option>
-          ))}
+          <optgroup label="── base prompts ──">
+            {templates.filter(t => !t.isVariant).map(t => (
+              <option key={t.path} value={t.path}>{t.label}</option>
+            ))}
+          </optgroup>
+          <optgroup label="── variants ──">
+            {templates.filter(t => t.isVariant).map(t => (
+              <option key={t.path} value={t.path}>{t.label}</option>
+            ))}
+          </optgroup>
         </select>
 
         {isVariant && (
