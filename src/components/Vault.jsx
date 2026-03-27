@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { listVault, readFile, writeFile, deleteFile } from '../lib/obsidian.js'
+import { listVault, readFile, writeFile, deleteFile, stripFrontmatter, parseFrontmatter } from '../lib/obsidian.js'
 
 function FileTree({ items, onSelect, selected, path = '' }) {
   const folders = (items?.files || []).filter(f => f.endsWith('/')).map(f => f.slice(0, -1))
@@ -89,6 +89,10 @@ export function Vault() {
   const [error, setError] = useState(null)
   const [newFilePath, setNewFilePath] = useState('')
   const [showNew, setShowNew] = useState(false)
+  const [showClone, setShowClone] = useState(false)
+  const [cloneName, setCloneName] = useState('')
+  const [cloning, setCloning] = useState(false)
+  const [treeKey, setTreeKey] = useState(0)
 
   useEffect(() => {
     listVault('').then(setRoot).catch(e => setError(e.message))
@@ -144,6 +148,55 @@ export function Vault() {
       setError(e.message)
     }
   }
+  const handleClone = async () => {
+  if (!cloneName.trim() || !selected) return
+  setCloning(true)
+  try {
+    const body = stripFrontmatter(content).trim()
+    // Classify the specialised prompt
+    const res = await fetch('/anthropic/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{ role: 'user', content: `You are a prompt librarian. Analyse the prompt text provided and return ONLY a JSON object with no preamble, no markdown, no backticks.\n\nReturn exactly this structure:\n{\n  "title": "${cloneName.trim()}",\n  "slug": "kebab-case-slug-for-the-title",\n  "category": "vc|learning|tools|reasoning|writing|research|other",\n  "subcategory": "more specific type",\n  "params": "comma separated context variables",\n  "description": "One sentence describing what this prompt does"\n}\n\nPrompt to classify:\n\n${body}` }]
+      })
+    })
+    const data = await res.json()
+    const text = data.content?.[0]?.text || ''
+    const fm = JSON.parse(text.replace(/```json|```/g, '').trim())
+    const savePath = `prompts/_templates/${fm.category}/${fm.slug}.md`
+    const newContent = `---
+title: ${fm.title}
+category: ${fm.category}
+subcategory: ${fm.subcategory}
+params: ${fm.params}
+description: ${fm.description}
+version: 1
+rating: ${parseFrontmatter(content).rating || 'null'}
+last_used: null
+notes: ""
+---
+
+${body}
+`
+    await writeFile(savePath, newContent)
+    setShowClone(false)
+    setCloneName('')
+    listVault('').then(setRoot)
+    setTreeKey(k => k + 1)
+    handleSelect(savePath)
+  } catch (e) {
+    setError(`Clone failed: ${e.message}`)
+  }
+  setCloning(false)
+}
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
@@ -188,7 +241,7 @@ export function Vault() {
           </div>
         )}
 
-        {root ? <FileTree items={root} onSelect={handleSelect} selected={selected} /> : (
+        {root ? <FileTree key={treeKey} items={root} onSelect={handleSelect} selected={selected} /> : (
           <div style={{ padding: '12px', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-muted)' }}>loading…</div>
         )}
       </aside>
@@ -214,11 +267,38 @@ export function Vault() {
                 <>
                   <Btn onClick={() => setEditing(true)}>edit</Btn>
                   <Btn onClick={handleDelete} danger>delete</Btn>
+                  <Btn onClick={() => setShowClone(s => !s)}>clone</Btn>
                 </>
               )}
             </div>
 
             {error && <div style={{ padding: '8px 16px', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: 'var(--forge-red)' }}>{error}</div>}
+
+            {showClone && !editing && (
+              <div style={{
+                padding: '8px 16px', borderBottom: '1px solid var(--forge-border)',
+                background: 'color-mix(in srgb, var(--forge-accent) 5%, var(--forge-surface))',
+                display: 'flex', gap: '8px', alignItems: 'center',
+              }}>
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-accent)', whiteSpace: 'nowrap' }}>clone as →</span>
+                <input
+                  value={cloneName}
+                  onChange={e => setCloneName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleClone()}
+                  placeholder="e.g. Paper Digest — Bioinformatics"
+                  autoFocus
+                  style={{
+                    flex: 1, background: 'var(--forge-bg)', border: '1px solid var(--forge-accent)',
+                    color: 'var(--forge-text)', fontFamily: 'DM Sans, sans-serif', fontSize: '0.78rem',
+                    padding: '5px 10px', borderRadius: '4px', outline: 'none',
+                }}
+              />
+              <Btn onClick={handleClone} accent disabled={!cloneName.trim() || cloning}>
+                {cloning ? '◌ cloning…' : '↵ clone'}
+            </Btn>
+            <Btn onClick={() => { setShowClone(false); setCloneName('') }}>cancel</Btn>
+          </div>
+        )}  
 
             {editing ? (
               <textarea

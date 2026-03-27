@@ -337,10 +337,10 @@ export function Variants({ navigateTo }) {
       if (challengerTo) {
         setRaceVariants([
           { name: challengerTo.name, label: `★ ${challengerTo.label}`, description: challengerTo.description, body: challengerTo.body, isChampion: true },
-          ...parsed.variants.slice(0, 2).map(v => ({ ...v, isChampion: false }))
+          ...parsed.variants.slice(0, 2).map(v => ({ ...v, body: v.prompt, isChampion: false }))
         ])
       } else {
-        setRaceVariants(parsed.variants.map(v => ({ ...v, isChampion: false })))
+        setRaceVariants(parsed.variants.map(v => ({ ...v, body: v.prompt, isChampion: false })))
       }
     } catch (e) { setError(`Generation failed: ${e.message}`) }
     setGenerating(false)

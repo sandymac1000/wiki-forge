@@ -97,6 +97,7 @@ export function Improvements() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
+  const [approveTitle, setApproveTitle] = useState('')
 
   const loadPrompts = useCallback(async () => {
     setLoading(true)
@@ -195,13 +196,13 @@ export function Improvements() {
       // Write improved version
       const finalBody = editMode ? editedProposed : proposal.proposed
       const newFm = `---
-title: ${fm.title || ''}
+title: ${approveTitle.trim() || fm.title || ''}
 category: ${fm.category || 'other'}
 subcategory: ${fm.subcategory || ''}
 params: ${fm.params || ''}
 description: ${fm.description || ''}
 version: ${newVersion}
-rating: null
+rating: ${selected.rating}
 last_used: null
 notes: ""
 improvement_note: "${proposal.reasoning.replace(/"/g, "'")}"
@@ -407,9 +408,18 @@ ${finalBody.trim()}
                     background: 'var(--forge-surface)',
                     display: 'flex', alignItems: 'center', gap: '8px',
                   }}>
-                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.62rem', color: 'var(--forge-muted)', flex: 1 }}>
-                      approve archives current to <span style={{ color: 'var(--forge-accent-dim)' }}>prompts/_archive/</span> and bumps to v{parseInt(selected.version) + 1}
-                    </span>
+                    <input
+                      value={approveTitle}
+                      onChange={e => setApproveTitle(e.target.value)}
+                      placeholder={`rename (optional) — current: ${selected?.title}`}
+                      style={{
+                        flex: 1, background: 'var(--forge-bg)', border: '1px solid var(--forge-border)',
+                        color: 'var(--forge-text)', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem',
+                        padding: '5px 10px', borderRadius: '4px', outline: 'none',
+                      }}
+                    />
+
+
                     <button
                       onClick={() => { setProposal(null); setEditMode(false) }}
                       style={{
