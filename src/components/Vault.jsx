@@ -92,6 +92,7 @@ export function Vault() {
   const [showClone, setShowClone] = useState(false)
   const [cloneName, setCloneName] = useState('')
   const [cloning, setCloning] = useState(false)
+  const [rating, setRating] = useState(null)
   const [treeKey, setTreeKey] = useState(0)
 
   useEffect(() => {
@@ -106,6 +107,8 @@ export function Vault() {
       const text = await readFile(path)
       setContent(text)
       setDraft(text)
+      const fm = parseFrontmatter(text)
+      setRating(fm.rating && fm.rating !== 'null' ? parseInt(fm.rating) : null)
     } catch (e) {
       setError(e.message)
     }
@@ -197,7 +200,19 @@ ${body}
   }
   setCloning(false)
 }
-
+const handleRate = async (r) => {
+  if (!selected) return
+  setRating(r)
+  const fm = parseFrontmatter(content)
+  const updated = content.replace(
+    /^rating:.*$/m,
+    `rating: ${r}`
+  )
+  if (updated === content) return // no rating field found
+  await writeFile(selected, updated)
+  setContent(updated)
+  setDraft(updated)
+}
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
       <aside style={{
@@ -268,6 +283,23 @@ ${body}
                   <Btn onClick={() => setEditing(true)}>edit</Btn>
                   <Btn onClick={handleDelete} danger>delete</Btn>
                   <Btn onClick={() => setShowClone(s => !s)}>clone</Btn>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginLeft: '8px' }}>
+  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem', color: 'var(--forge-muted)' }}>rate</span>
+                    {[1,2,3,4,5].map(r => (
+                      <div
+                        key={r}
+                        onClick={() => handleRate(r)}
+                        title={`Rate ${r}/5`}
+                        style={{
+                          width: '10px', height: '10px', borderRadius: '50%',
+                          background: rating >= r ? 'var(--forge-accent)' : 'var(--forge-border)',
+                          boxShadow: rating >= r ? '0 0 4px var(--forge-accent)' : 'none',
+                          cursor: 'pointer', transition: 'all 0.15s',
+                    }}
+                   />
+                ))}
+                {rating && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem', color: 'var(--forge-muted)', marginLeft: '4px' }}>{rating}/5</span>}
+                </div>
                 </>
               )}
             </div>

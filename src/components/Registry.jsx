@@ -118,7 +118,7 @@ export function Registry() {
     setError(null)
     try {
       const paths = await walkVault('prompts/')
-      const templatePaths = paths.filter(p => !p.includes('/_context/'))
+      const templatePaths = paths.filter(p => !p.includes('/_context/') && !p.includes('/_archive/') && !p.includes('/_variants/'))
       const entries = await Promise.all(
         templatePaths.map(async (path) => {
           try {
@@ -355,7 +355,8 @@ export function Registry() {
                     }}
                   >
                     <td style={{ ...tdStyle, flex: '2 1 200px', fontWeight: 500, gap: '8px' }}>
-                      {p.title}
+                      <span style={{ display: 'block', fontFamily: 'JetBrains Mono, monospace' }}>{p.name.split('/').pop().replace('.md','')}</span>
+                      <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--forge-muted)', fontFamily: 'DM Sans, sans-serif' }}>{p.title}</span>  
                       {status && <ClassifyStatus status={status} />}
                     </td>
                     <td style={{ ...tdStyle, flex: '0 0 80px' }}>

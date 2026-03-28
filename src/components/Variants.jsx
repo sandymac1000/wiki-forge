@@ -69,21 +69,18 @@ async function fetchPaper(url) {
     if (res2.ok) return { text: htmlToText(await res2.text()), source: `arXiv:${arxivId} (abstract)` }
     throw new Error('arXiv fetch failed — paste abstract text directly')
   }
-  // bioRxiv
   const bm = url.match(/biorxiv\.org\/content\/(10\.\d{4,}\/[^\s?#]+)/)
   if (bm) {
     const res = await fetch(`/paperfetch?url=${encodeURIComponent(`https://www.biorxiv.org/content/${bm[1]}v1`)}`)
     if (res.ok) return { text: htmlToText(await res.text()), source: `bioRxiv:${bm[1]}` }
     throw new Error('bioRxiv fetch failed — paste abstract text directly')
   }
-  // PubMed
   const pm = url.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/)
   if (pm) {
     const res = await fetch(`/paperfetch?url=${encodeURIComponent(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pm[1]}&rettype=abstract&retmode=text`)}`)
     if (res.ok) return { text: await res.text(), source: `PubMed:${pm[1]}` }
     throw new Error('PubMed fetch failed')
   }
-  // Generic
   const res = await fetch(`/paperfetch?url=${encodeURIComponent(url)}`)
   if (res.ok) {
     const text = htmlToText(await res.text())
@@ -217,8 +214,8 @@ function SavedChampion({ variant, onDelete, onChallenge }) {
     }}>
       <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', color: 'var(--forge-accent)' }}>★</span>
       <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 600, fontSize: '0.78rem', color: 'var(--forge-text)' }}>{variant.label}</div>
-        <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.68rem', color: 'var(--forge-muted)', marginTop: '2px' }}>{variant.description}</div>
+        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, fontSize: '0.78rem', color: 'var(--forge-text)' }}>{variant.name}</div>
+        <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.68rem', color: 'var(--forge-muted)', marginTop: '2px' }}>{variant.label}</div>
         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.58rem', color: 'var(--forge-muted)', marginTop: '3px' }}>
           rating: <span style={{ color: 'var(--forge-accent)' }}>{variant.rating ?? '—'}/5</span>
         </div>
@@ -257,6 +254,8 @@ export function Variants({ navigateTo }) {
   const [raceComplete, setRaceComplete] = useState(false)
   const [voted, setVoted] = useState(null)
   const [champion, setChampion] = useState(null)
+  const [pendingVote, setPendingVote] = useState(null)
+  const [variantName, setVariantName] = useState('')
   const outputRefs = useRef({})
 
   const loadBase = useCallback(async () => {
@@ -320,6 +319,8 @@ export function Variants({ navigateTo }) {
     setRaceVariants([])
     setOutputs({})
     setVoted(null)
+    setPendingVote(null)
+    setVariantName('')
     setRaceComplete(false)
     setChampion(null)
     setRaceContext('')
@@ -351,13 +352,14 @@ export function Variants({ navigateTo }) {
     setRacing(true)
     setOutputs({})
     setVoted(null)
+    setPendingVote(null)
     setRaceComplete(false)
 
     const userMsg = paperMeta?.text
       ? `## Paper / Document\nSource: ${paperMeta.source}\n\n${paperMeta.text}${raceContext ? `\n\n## Context\n${raceContext}` : ''}`
       : raceContext || (selectedBase?.body?.toLowerCase().match(/paper|document|material|report|pdf/)
-    ? '---\nNOTE: No document has been provided. Before proceeding, ask the user to share the paper, report or materials needed to complete this task. Do not attempt to answer without them.\n---'
-    : 'Begin.')
+        ? '---\nNOTE: No document has been provided. Before proceeding, ask the user to share the paper, report or materials needed to complete this task. Do not attempt to answer without them.\n---'
+        : 'Begin.')
 
     await Promise.all(raceVariants.map(async v => {
       try {
@@ -378,23 +380,31 @@ export function Variants({ navigateTo }) {
     setRaceComplete(true)
   }
 
-  // Vote — winner saved with rating:4, wins:1, runs:1
-  // Rating 4 = "good, beat peers, not yet battle-tested" → shows in Improvements
-  const handleVote = async (winnerName) => {
-    if (voted || !selectedBase) return
+  // Step 1: click vote → show name input
+  const handleVote = (winnerName) => {
+    if (voted || pendingVote || !selectedBase) return
+    setPendingVote(winnerName)
+    setVariantName(raceVariants.find(v => v.name === winnerName)?.label || '')
+  }
+
+  // Step 2: confirm name → save winner only
+  const handleConfirmVote = async () => {
+    if (!pendingVote || !variantName.trim()) return
+    const winnerName = pendingVote
     setVoted(winnerName)
+    setPendingVote(null)
 
     const winner = raceVariants.find(v => v.name === winnerName)
     if (!winner) return
     const base = selectedBase
+    const slug = variantName.trim().toLowerCase().replace(/\s+/g, '-')
 
     if (winner.isChampion) {
-      // Champion survived — bump wins + runs, keep rating
       const existing = savedVariants.find(v => v.name === winnerName)
       if (existing) {
         const fm = parseFrontmatter(existing.raw)
         await writeFile(existing.path, buildVariantFm({
-          label: fm.label || winner.label,
+          label: variantName.trim(),
           description: fm.description || winner.description,
           slug: base.slug,
           category: base.category,
@@ -405,14 +415,12 @@ export function Variants({ navigateTo }) {
           rating: fm.rating || '4',
           body: winner.body,
         }))
-        // Update losers' run counts
         await bumpLosers(raceVariants, winnerName, savedVariants, base)
       }
     } else {
-      // New challenger won — save with rating:4
-      const savePath = `prompts/_variants/${base.slug}/${winner.name}.md`
+      const savePath = `prompts/_variants/${base.slug}/${slug}.md`
       await writeFile(savePath, buildVariantFm({
-        label: winner.label,
+        label: variantName.trim(),
         description: winner.description,
         slug: base.slug,
         category: base.category,
@@ -423,7 +431,6 @@ export function Variants({ navigateTo }) {
         rating: 4,
         body: winner.body,
       }))
-      // Bump champion's run count (it lost)
       if (champion) {
         const existing = savedVariants.find(v => v.name === champion.name)
         if (existing) {
@@ -477,8 +484,8 @@ export function Variants({ navigateTo }) {
               background: selectedBase?.path === p.path ? 'color-mix(in srgb, var(--forge-accent) 6%, var(--forge-bg))' : 'transparent',
               transition: 'all 0.1s',
             }}>
-              <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.75rem', color: 'var(--forge-text)', fontWeight: 500 }}>{p.title}</div>
-              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.58rem', color: 'var(--forge-muted)', marginTop: '2px' }}>{p.slug}</div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.75rem', color: 'var(--forge-text)', fontWeight: 600 }}>{p.slug}</div>
+              <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.7rem', color: 'var(--forge-muted)', marginTop: '2px' }}>{p.title}</div>
             </div>
           ))}
         </div>
@@ -499,9 +506,9 @@ export function Variants({ navigateTo }) {
             {/* Header */}
             <div style={{ borderBottom: '1px solid var(--forge-border)', padding: '10px 16px', background: 'var(--forge-surface)', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.9rem', color: 'var(--forge-text)' }}>{selectedBase.title}</div>
-                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.62rem', color: 'var(--forge-muted)', marginTop: '2px' }}>
-                  {savedVariants.length > 0 ? `${savedVariants.length} saved champion${savedVariants.length > 1 ? 's' : ''}` : 'no saved variants yet'}
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: '0.9rem', color: 'var(--forge-text)' }}>{selectedBase.slug}</div>
+                <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.75rem', color: 'var(--forge-muted)', marginTop: '2px' }}>
+                  {selectedBase.title} · {savedVariants.length > 0 ? `${savedVariants.length} saved champion${savedVariants.length > 1 ? 's' : ''}` : 'no saved variants yet'}
                 </div>
               </div>
               {!hasOutputs && !raceVariants.length && (
@@ -600,16 +607,23 @@ export function Variants({ navigateTo }) {
                 {/* Status bar */}
                 <div style={{
                   padding: '10px 16px', borderBottom: '1px solid var(--forge-border)',
-                  background: voted ? 'color-mix(in srgb, var(--forge-accent) 8%, var(--forge-surface))' : 'var(--forge-surface)',
+                  background: voted
+                    ? 'color-mix(in srgb, var(--forge-accent) 8%, var(--forge-surface))'
+                    : pendingVote
+                      ? 'color-mix(in srgb, var(--forge-accent) 5%, var(--forge-surface))'
+                      : 'var(--forge-surface)',
                   display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
                 }}>
-                  {!raceComplete && !voted && (
+                  {/* Streaming */}
+                  {!raceComplete && !voted && !pendingVote && (
                     <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-accent)' }}>● streaming all variants simultaneously…</span>
                   )}
-                  {raceComplete && !voted && (
+
+                  {/* Vote prompt */}
+                  {raceComplete && !voted && !pendingVote && (
                     <>
                       <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.85rem', color: 'var(--forge-text)' }}>Which is best?</span>
-                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-muted)' }}>Click a column header to vote — winner saved with rating 4/5, goes to Improvements</span>
+                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-muted)' }}>Click a column header to vote — winner saved with rating 4/5</span>
                       <button onClick={() => { setOutputs({}); setRaceComplete(false) }} style={{
                         marginLeft: 'auto', background: 'none', border: '1px solid var(--forge-border)',
                         color: 'var(--forge-muted)', fontFamily: 'JetBrains Mono, monospace',
@@ -617,10 +631,41 @@ export function Variants({ navigateTo }) {
                       }}>↺ re-race</button>
                     </>
                   )}
+
+                  {/* Name the winner */}
+                  {pendingVote && !voted && (
+                    <>
+                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-accent)', whiteSpace: 'nowrap' }}>name this variant →</span>
+                      <input
+                        autoFocus
+                        value={variantName}
+                        onChange={e => setVariantName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleConfirmVote()}
+                        placeholder="e.g. analytical-bioinformatics"
+                        style={{
+                          flex: 1, background: 'var(--forge-bg)', border: '1px solid var(--forge-accent)',
+                          color: 'var(--forge-text)', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem',
+                          padding: '4px 10px', borderRadius: '4px', outline: 'none',
+                        }}
+                      />
+                      <button onClick={handleConfirmVote} disabled={!variantName.trim()} style={{
+                        background: 'var(--forge-accent)', border: 'none', color: '#000',
+                        fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.75rem',
+                        padding: '4px 14px', cursor: variantName.trim() ? 'pointer' : 'default', borderRadius: '4px',
+                      }}>save ↵</button>
+                      <button onClick={() => { setPendingVote(null); setVariantName('') }} style={{
+                        background: 'none', border: '1px solid var(--forge-border)', color: 'var(--forge-muted)',
+                        fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem',
+                        padding: '4px 8px', cursor: 'pointer', borderRadius: '4px',
+                      }}>cancel</button>
+                    </>
+                  )}
+
+                  {/* Post-vote */}
                   {voted && winnerVariant && (
                     <>
                       <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.88rem', color: 'var(--forge-accent)' }}>
-                        ★ {winnerVariant.label} wins · saved · rated 4/5
+                        ★ {variantName || winnerVariant.label} wins · saved · rated 4/5
                       </span>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
                         <button onClick={() => handleGenerate(champion)} style={{
@@ -646,8 +691,8 @@ export function Variants({ navigateTo }) {
                 {/* Side by side outputs */}
                 <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                   {raceVariants.map((v, i) => {
-                    const isWinner = voted === v.name
-                    const isLoser = voted && voted !== v.name
+                    const isWinner = voted === v.name || pendingVote === v.name
+                    const isLoser = (voted || pendingVote) && voted !== v.name && pendingVote !== v.name
                     return (
                       <div key={v.name} style={{
                         flex: 1, display: 'flex', flexDirection: 'column',
@@ -655,12 +700,15 @@ export function Variants({ navigateTo }) {
                         overflow: 'hidden', opacity: isLoser ? 0.35 : 1, transition: 'opacity 0.35s',
                       }}>
                         <div
-                          onClick={() => raceComplete && !voted && handleVote(v.name)}
+                          onClick={() => raceComplete && !voted && !pendingVote && handleVote(v.name)}
                           style={{
                             padding: '8px 14px',
-                            background: isWinner ? 'color-mix(in srgb, var(--forge-accent) 15%, var(--forge-surface))' : v.isChampion ? 'color-mix(in srgb, var(--forge-accent) 5%, var(--forge-surface))' : 'var(--forge-surface)',
+                            background: isWinner
+                              ? 'color-mix(in srgb, var(--forge-accent) 15%, var(--forge-surface))'
+                              : v.isChampion ? 'color-mix(in srgb, var(--forge-accent) 5%, var(--forge-surface))'
+                              : 'var(--forge-surface)',
                             borderBottom: `1px solid ${isWinner ? 'var(--forge-accent)' : 'var(--forge-border)'}`,
-                            cursor: raceComplete && !voted ? 'pointer' : 'default',
+                            cursor: raceComplete && !voted && !pendingVote ? 'pointer' : 'default',
                             display: 'flex', alignItems: 'center', gap: '8px',
                             transition: 'background 0.2s',
                           }}
@@ -671,7 +719,7 @@ export function Variants({ navigateTo }) {
                             </div>
                             <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.65rem', color: 'var(--forge-muted)' }}>{v.description}</div>
                           </div>
-                          {raceComplete && !voted && (
+                          {raceComplete && !voted && !pendingVote && (
                             <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem', color: 'var(--forge-accent)', border: '1px solid var(--forge-accent)', padding: '2px 7px', borderRadius: '3px' }}>vote ↑</span>
                           )}
                         </div>

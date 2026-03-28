@@ -332,13 +332,14 @@ export function Runner({ navigateTo, navState }) {
             const raw = await readFile(p)
             const fm = parseFrontmatter(raw)
             const parts = p.replace('prompts/_variants/', '').replace('.md', '').split('/')
-            return { path: p, label: `${parts[0]} / ${fm.label || parts[1]}`, isVariant: true }
+            return { path: p, label: `${parts[1]}  —  ${fm.label || parts[1]}`, isVariant: true }
           } catch { return { path: p, label: p.replace('prompts/', ''), isVariant: true } }
         }
         try {
           const raw = await readFile(p)
           const fm = parseFrontmatter(raw)
-          return { path: p, label: fm.title || p.replace('prompts/', '').replace('.md',''), isVariant: false }
+          const slug = p.split('/').pop().replace('.md', '')
+          return { path: p, label: `${slug}  —  ${fm.title || slug}`, isVariant: false }
         } catch { return { path: p, label: p.replace('prompts/', ''), isVariant: false } }
       }))
       setTemplates(withLabels)

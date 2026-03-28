@@ -124,7 +124,11 @@ export function Improvements() {
           } catch { return null }
         })
       )
-      const rated = entries.filter(Boolean).sort((a, b) => a.rating - b.rating) // worst first
+      const rated = entries.filter(Boolean).sort((a, b) => {
+        const aDate = a.last_used || '0000'
+        const bDate = b.last_used || '0000'
+        return bDate.localeCompare(aDate) // most recent first (FILO)
+      })
       setPrompts(rated)
       if (rated.length > 0 && !selected) setSelected(rated[0])
     } catch (e) {
@@ -267,9 +271,10 @@ ${finalBody.trim()}
                   transition: 'all 0.1s',
                 }}
               >
-                <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.75rem', color: 'var(--forge-text)', fontWeight: 500, marginBottom: '4px' }}>
-                  {p.title}
+               <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.75rem', color: 'var(--forge-text)', fontWeight: 600, marginBottom: '2px' }}>
+                  {p.path.split('/').pop().replace('.md', '')} 
                 </div>
+                <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.68rem', color: 'var(--forge-muted)' }}>{p.title}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <RatingBar rating={p.rating} />
                   <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem', color: 'var(--forge-muted)' }}>v{p.version}</span>
@@ -298,8 +303,8 @@ ${finalBody.trim()}
               display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
             }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.9rem', color: 'var(--forge-text)' }}>{selected.title}</div>
-                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.62rem', color: 'var(--forge-muted)', marginTop: '2px' }}>{selected.path}</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: '0.9rem', color: 'var(--forge-text)' }}>{selected.path.split('/').pop().replace('.md', '')}</div>
+                <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: '0.75rem', color: 'var(--forge-muted)', marginTop: '2px' }}>{selected.title}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div>
