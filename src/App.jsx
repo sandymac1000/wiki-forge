@@ -47,7 +47,7 @@ export default function App() {
             fontSize: '1.1rem',
             color: 'var(--forge-accent)',
             letterSpacing: '-0.02em',
-          }}>PROMPT FORGE</span>
+          }}>WIKI FORGE</span>
           <span style={{
             fontFamily: 'JetBrains Mono, monospace',
             fontSize: '0.65rem',
