@@ -5,8 +5,10 @@ import { Runner } from './components/Runner.jsx'
 import { Variants } from './components/Variants.jsx'
 import { Improvements } from './components/Improvements.jsx'
 import { Registry } from './components/Registry.jsx'
+import { WikiIngest } from './components/WikiIngest.jsx'
 
 const TABS = [
+  { id: 'wiki',         label: 'Wiki Ingest',  glyph: '⊗' },
   { id: 'inbox',        label: 'Inbox',        glyph: '⊕' },
   { id: 'vault',        label: 'Vault',        glyph: '◈' },
   { id: 'runner',       label: 'Runner',       glyph: '▶' },
@@ -91,11 +93,12 @@ export default function App() {
             boxShadow: '0 0 6px var(--forge-green)',
           }} />
           <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-muted)' }}>
-            obsidian connected
+            obsidian · sandywiki
           </span>
         </div>
       </header>
       <main style={{ flex: 1, overflow: 'hidden' }}>
+        {tab === 'wiki'         && <WikiIngest />}
         {tab === 'inbox'        && <Inbox navigateTo={navigateTo} />}
         {tab === 'vault'        && <Vault navigateTo={navigateTo} />}
         {tab === 'runner'       && <Runner navigateTo={navigateTo} navState={navState} />}
