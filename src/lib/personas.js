@@ -17,14 +17,15 @@ export async function loadPersonas() {
     const files = (listing.files || []).filter(f => f.endsWith('.md'))
 
     const personas = await Promise.all(
-      files.map(async (path) => {
+      files.map(async (filename) => {
+        const path = `personas/${filename}`
         try {
           const content = await readFile(path)
           const meta = parseFrontmatter(content)
           const body = stripFrontmatter(content).trim()
           return {
-            id: meta.id || slugify(meta.name || path),
-            name: meta.name || path.replace('personas/', '').replace('.md', ''),
+            id: meta.id || slugify(meta.name || filename),
+            name: meta.name || filename.replace('.md', ''),
             context: meta.context || null,
             isDefault: meta.default === 'true' || meta.default === true,
             isPublic: meta.public === 'true' || meta.public === true,
