@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { writeFile, readFile } from '../lib/obsidian.js'
+import { loadPersonas, getDefaultPersona, buildPersonaContext } from '../lib/personas.js'
+import { Suggestions } from './Suggestions.jsx'
 
 const WIKI_CLASSIFIER_PROMPT = `You are a knowledge base librarian for a venture capital wiki. Analyse the content provided and return ONLY a JSON object with no preamble, no markdown, no backticks.
 
@@ -50,12 +52,25 @@ export function WikiIngest() {
   const [editPath, setEditPath] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [savedPath, setSavedPath] = useState(null)
   const [error, setError] = useState(null)
+  const [personas, setPersonas] = useState([])
+  const [activePersona, setActivePersona] = useState(null)
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const fileRef = useRef()
+
+  // Load personas from vault on mount
+  useEffect(() => {
+    loadPersonas().then(loaded => {
+      setPersonas(loaded)
+      setActivePersona(getDefaultPersona(loaded))
+    })
+  }, [])
 
   const reset = () => {
     setPasteText(''); setUrlValue(''); setFileName(null); setFileBase64(null)
-    setConverted(null); setProposal(null); setEditPath(''); setSaved(false); setError(null)
+    setConverted(null); setProposal(null); setEditPath(''); setSaved(false)
+    setSavedPath(null); setError(null); setShowSuggestions(false)
   }
 
   // ── Step 1: Convert input to markdown ──────────────────────────────────────
@@ -101,6 +116,10 @@ export function WikiIngest() {
     setClassifying(true)
     try {
       const preview = markdown.slice(0, 4000)
+      const personaContext = activePersona ? buildPersonaContext(activePersona) : ''
+      const systemNote = personaContext
+        ? `${personaContext}\n\nUsing this context to inform classification decisions.\n\n`
+        : ''
       const res = await fetch('/anthropic/v1/messages', {
         method: 'POST',
         headers: {
@@ -114,7 +133,7 @@ export function WikiIngest() {
           max_tokens: 600,
           messages: [{
             role: 'user',
-            content: `${WIKI_CLASSIFIER_PROMPT}\n\nContent to classify:\n\n${preview}`,
+            content: `${systemNote}${WIKI_CLASSIFIER_PROMPT}\n\nContent to classify:\n\n${preview}`,
           }],
         }),
       })
@@ -165,14 +184,12 @@ ${tagsYaml}
 ${converted.markdown.trim()}
 `
       await writeFile(editPath, page)
-
-      // Append to log.md
       await appendToLog(proposal.title, proposal.wiki_section, source)
-
-      // Update INDEX.md
       await appendToIndex(proposal.title, editPath, proposal.description, source)
 
       setSaved(true)
+      setSavedPath(editPath)
+      setShowSuggestions(true)
     } catch (e) {
       setError(`Save failed: ${e.message}`)
     }
@@ -313,6 +330,24 @@ ${converted.markdown.trim()}
           </div>
         )}
 
+        {/* Persona selector */}
+        {personas.length > 0 && (
+          <div style={{ marginTop: '12px' }}>
+            <Label>analysing as</Label>
+            <select
+              value={activePersona?.id || ''}
+              onChange={e => setActivePersona(personas.find(p => p.id === e.target.value))}
+              style={{ ...fieldStyle, width: '100%' }}
+            >
+              {personas.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.fund ? ` — ${p.fund}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {error && (
           <div style={{ color: 'var(--forge-red)', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem', marginTop: '8px', padding: '8px', background: 'var(--forge-surface)', borderRadius: '4px' }}>
             {error}
@@ -441,6 +476,15 @@ ${converted.markdown.trim()}
                 </div>
                 <button onClick={reset} style={{ ...ghostBtn, padding: '8px' }}>+ ingest another</button>
               </div>
+            )}
+
+            {showSuggestions && proposal && savedPath && (
+              <Suggestions
+                classification={proposal}
+                savedPath={savedPath}
+                persona={activePersona}
+                onClose={() => setShowSuggestions(false)}
+              />
             )}
           </div>
         )}
