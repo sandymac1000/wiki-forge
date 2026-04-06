@@ -217,7 +217,7 @@ ${answer}
               style={{ ...fieldStyle, width: '100%' }}
             >
               {personas.map(p => (
-                <option key={p.id} value={p.id}>{p.name}{p.fund ? ` — ${p.fund}` : ''}</option>
+                <option key={p.id} value={p.id}>{p.name}{p.context ? ` — ${p.context}` : ''}</option>
               ))}
             </select>
           </div>
@@ -229,7 +229,7 @@ ${answer}
           value={question}
           onChange={e => { setQuestion(e.target.value); setAnswer(null); setSaved(false) }}
           onKeyDown={handleKeyDown}
-          placeholder={`Ask anything across your wiki…\n\nExamples:\n• What are the common risks across my portfolio companies?\n• Summarise everything I know about [company]\n• Compare the market positions of X and Y\n• What does my wiki say about AI investment themes?\n• What questions should I ask at the nplan board meeting?\n\n⌘↵ to run`}
+          placeholder={`Ask anything across your wiki…\n\nExamples:\n• What are the common themes across my research on [topic]?\n• Summarise everything I know about [subject]\n• Compare what I've written about X versus Y\n• What are the open questions in my notes on [area]?\n• What should I prepare before my meeting on [topic]?\n\n⌘↵ to run`}
           style={{
             flex: 1, background: 'var(--forge-surface)', border: '1px solid var(--forge-border)',
             color: 'var(--forge-text)', fontFamily: 'JetBrains Mono, monospace',

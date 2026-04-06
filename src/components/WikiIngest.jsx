@@ -3,7 +3,7 @@ import { writeFile, readFile } from '../lib/obsidian.js'
 import { loadPersonas, getDefaultPersona, buildPersonaContext } from '../lib/personas.js'
 import { Suggestions } from './Suggestions.jsx'
 
-const WIKI_CLASSIFIER_PROMPT = `You are a knowledge base librarian for a venture capital wiki. Analyse the content provided and return ONLY a JSON object with no preamble, no markdown, no backticks.
+const WIKI_CLASSIFIER_PROMPT = `You are a knowledge base librarian. Analyse the content provided and return ONLY a JSON object with no preamble, no markdown, no backticks.
 
 Return exactly this structure:
 {
@@ -13,18 +13,18 @@ Return exactly this structure:
   "wiki_section": "summaries|entities|concepts|comparisons|query-results",
   "description": "One sentence TLDR describing what this content covers",
   "tags": ["tag1", "tag2", "tag3"],
-  "key_entities": ["Company or Person Name"],
+  "key_entities": ["Name of specific person, organisation, or project mentioned"],
   "suggested_path": "wiki/[wiki_section]/[slug].md"
 }
 
 wiki_section rules — pick the single best fit:
 - summaries: source documents (articles, reports, papers, transcripts, threads, emails)
-- entities: content primarily about ONE company, person, fund, or technology
-- concepts: mental models, frameworks, investment theses, recurring ideas
+- entities: content primarily about ONE specific person, organisation, project, or technology
+- concepts: mental models, frameworks, recurring ideas, theories
 - comparisons: head-to-head analysis of two or more specific things
 - query-results: answers to specific questions worth preserving as reference
 
-Use tags that are useful for a VC: e.g. ai, deep-tech, pre-seed, seed, spinout, due-diligence, board, portfolio, market-research, founder, competitor`
+Use descriptive tags relevant to the content. Examples: ai, research, strategy, technology, risk, people, process, learning, analysis`
 
 const TODAY = new Date().toISOString().split('T')[0]
 
@@ -341,7 +341,7 @@ ${converted.markdown.trim()}
             >
               {personas.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name}{p.fund ? ` — ${p.fund}` : ''}
+                  {p.name}{p.context ? ` — ${p.context}` : ''}
                 </option>
               ))}
             </select>
@@ -421,7 +421,7 @@ ${converted.markdown.trim()}
                 value={(proposal.tags || []).join(', ')}
                 onChange={e => setProposal(p => ({ ...p, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }))}
                 style={{ ...fieldStyle, width: '100%' }}
-                placeholder="ai, deep-tech, portfolio..."
+                placeholder="ai, research, strategy, technology..."
               />
             </div>
 

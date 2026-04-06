@@ -8,7 +8,7 @@ import { listVault, readFile } from './obsidian.js'
  *   name:     Display name shown in selector
  *   id:       Unique identifier (slug)
  *   default:  true|false — which persona is active by default
- *   fund:     Optional — which fund/context this persona represents
+ *   context:  Optional — short label shown alongside name (role, project, etc.)
  *   public:   true|false — safe to include in community examples (no personal data)
  */
 export async function loadPersonas() {
@@ -25,7 +25,7 @@ export async function loadPersonas() {
           return {
             id: meta.id || slugify(meta.name || path),
             name: meta.name || path.replace('personas/', '').replace('.md', ''),
-            fund: meta.fund || null,
+            context: meta.context || null,
             isDefault: meta.default === 'true' || meta.default === true,
             isPublic: meta.public === 'true' || meta.public === true,
             body,
@@ -38,13 +38,11 @@ export async function loadPersonas() {
     )
 
     const valid = personas.filter(Boolean)
-    // Ensure there's always a default
     if (valid.length > 0 && !valid.some(p => p.isDefault)) {
       valid[0].isDefault = true
     }
     return valid
   } catch {
-    // Graceful fallback if personas/ doesn't exist yet
     return [fallbackPersona]
   }
 }
@@ -53,10 +51,6 @@ export function getDefaultPersona(personas) {
   return personas.find(p => p.isDefault) || personas[0] || fallbackPersona
 }
 
-/**
- * Build the system prompt for a given persona.
- * Used as context for both classification and suggestions.
- */
 export function buildPersonaContext(persona) {
   if (!persona || persona.id === 'fallback') return ''
   return `You are operating through the following lens:\n\n${persona.body}`
@@ -87,10 +81,10 @@ function slugify(str) {
 
 const fallbackPersona = {
   id: 'fallback',
-  name: 'Generic Investor',
-  fund: null,
+  name: 'Default Researcher',
+  context: null,
   isDefault: true,
   isPublic: true,
-  body: 'You are an experienced investor reviewing documents with a focus on commercial viability, risk, team quality, and market opportunity.',
+  body: 'You are a knowledge worker reviewing documents with a focus on clarity, key insights, open questions, and connections to existing knowledge.',
   path: null,
 }

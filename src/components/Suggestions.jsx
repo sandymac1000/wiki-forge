@@ -22,9 +22,7 @@ Rules:
 - Only suggest things that are genuinely useful given this specific document
 - Do not suggest generic things like "read more" or "take notes"
 - Each suggestion must be something that can be produced as a document
-- If the document is a board pack or financial report for a company, suggest company-specific outputs
-- If the document is a strategy or market analysis, suggest analytical outputs
-- If the document is a research paper or article, suggest synthesis outputs
+- Match suggestions to the document type: analytical documents suggest synthesis outputs, meeting/transcript documents suggest action summaries, research documents suggest structured summaries or comparisons
 
 Return ONLY a JSON array with no preamble:
 [
@@ -32,7 +30,7 @@ Return ONLY a JSON array with no preamble:
     "id": "unique-slug",
     "label": "Short action title (3-6 words)",
     "description": "One sentence: what this produces and why it's useful",
-    "template_type": "pre-board-briefing|meeting-note|ic-memo|analysis|summary|entity-update|comparison|other",
+    "template_type": "briefing|meeting-note|analysis|summary|entity-update|comparison|other",
     "output_path": "suggested vault path for the output",
     "auto_generatable": true
   }
