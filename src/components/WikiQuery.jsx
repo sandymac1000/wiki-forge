@@ -4,20 +4,14 @@ import { loadPersonas, getDefaultPersona, buildPersonaContext } from '../lib/per
 
 const TODAY = () => new Date().toISOString().split('T')[0]
 
-/**
- * WikiQuery — ask questions of your accumulated wiki knowledge.
- *
- * Flow:
- * 1. Claude reads INDEX.md to find relevant pages
- * 2. Claude reads those pages in full
- * 3. Claude synthesises an answer with citations
- * 4. Answer can be saved back to wiki as a query-result page
- *
- * Also supports directed analysis modes:
- * - "Summarise all [tag]" — pulls all pages with a tag and synthesises
- * - "Compare X and Y" — pulls entity pages and runs comparison
- * - "What are the risks in [company]" — focused entity analysis
- */
+// Sonnet 4.5 pricing per million tokens (update if model changes)
+const COST_PER_M_IN  = 3.00
+const COST_PER_M_OUT = 15.00
+
+function calcCost(inputTokens, outputTokens) {
+  return ((inputTokens / 1_000_000) * COST_PER_M_IN) +
+         ((outputTokens / 1_000_000) * COST_PER_M_OUT)
+}
 
 const QUERY_SYSTEM = (personaContext) => `You are a knowledge base analyst.
 ${personaContext ? `\nOperating through this lens:\n${personaContext}\n` : ''}
@@ -55,14 +49,16 @@ export function WikiQuery() {
   const [question, setQuestion] = useState('')
   const [personas, setPersonas] = useState([])
   const [activePersona, setActivePersona] = useState(null)
-  const [status, setStatus] = useState(null) // status message during processing
-  const [answer, setAnswer] = useState(null)
+  const [status, setStatus] = useState(null)
+  const [answer, setAnswer] = useState(null)       // final answer
+  const [streaming, setStreaming] = useState('')    // answer as it arrives
   const [sources, setSources] = useState([])
+  const [usage, setUsage] = useState(null)          // { inputTokens, outputTokens, cost }
   const [error, setError] = useState(null)
   const [running, setRunning] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [history, setHistory] = useState([]) // previous Q&As this session
-  const inputRef = useRef()
+  const [history, setHistory] = useState([])
+  const answerRef = useRef(null)
 
   useEffect(() => {
     loadPersonas().then(loaded => {
@@ -71,7 +67,13 @@ export function WikiQuery() {
     })
   }, [])
 
-  const callClaude = async (messages, maxTokens = 1000) => {
+  // Auto-scroll answer panel as streaming arrives
+  useEffect(() => {
+    if (answerRef.current) answerRef.current.scrollTop = answerRef.current.scrollHeight
+  }, [streaming])
+
+  // Non-streaming call (for find-pages step — small, fast)
+  const callClaude = async (messages, maxTokens = 400) => {
     const res = await fetch('/anthropic/v1/messages', {
       method: 'POST',
       headers: {
@@ -89,25 +91,80 @@ export function WikiQuery() {
     })
     const data = await res.json()
     if (data.error) throw new Error(data.error.message)
-    return data.content?.[0]?.text || ''
+    return { text: data.content?.[0]?.text || '', usage: data.usage }
+  }
+
+  // Streaming call (for synthesis — longer, benefits from streaming)
+  const callClaudeStream = async (messages, maxTokens = 2000, onChunk) => {
+    const res = await fetch('/anthropic/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: maxTokens,
+        stream: true,
+        system: QUERY_SYSTEM(buildPersonaContext(activePersona)),
+        messages,
+      }),
+    })
+    if (!res.ok) throw new Error(`API error: ${res.status}`)
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let full = ''
+    let inputTokens = 0, outputTokens = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value)
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6)
+        if (data === '[DONE]') continue
+        try {
+          const json = JSON.parse(data)
+          if (json.type === 'content_block_delta' && json.delta?.text) {
+            full += json.delta.text
+            onChunk(full)
+          }
+          if (json.type === 'message_delta' && json.usage) {
+            outputTokens = json.usage.output_tokens
+          }
+          if (json.type === 'message_start' && json.message?.usage) {
+            inputTokens = json.message.usage.input_tokens
+          }
+        } catch {}
+      }
+    }
+    return { text: full, usage: { input_tokens: inputTokens, output_tokens: outputTokens } }
   }
 
   const handleQuery = async () => {
     if (!question.trim() || running) return
     setRunning(true)
     setAnswer(null)
+    setStreaming('')
     setSources([])
+    setUsage(null)
     setError(null)
     setSaved(false)
 
+    let totalInput = 0, totalOutput = 0
+
     try {
-      // Step 1: Read the index
+      // Step 1: Read index
       setStatus('reading wiki index…')
       let index = ''
       try {
         index = await readFile('wiki/INDEX.md')
       } catch {
-        throw new Error('Could not read wiki/INDEX.md — make sure your vault is open in Obsidian and the wiki has been set up.')
+        throw new Error('Could not read wiki/INDEX.md — make sure Obsidian is open with your vault.')
       }
 
       // Step 2: Find relevant pages
@@ -115,44 +172,49 @@ export function WikiQuery() {
       const findResult = await callClaude([{
         role: 'user',
         content: FIND_PAGES_PROMPT(question, index),
-      }], 300)
+      }], 400)
+      totalInput  += findResult.usage?.input_tokens  || 0
+      totalOutput += findResult.usage?.output_tokens || 0
 
       let pagePaths = []
       try {
-        const clean = findResult.replace(/```json|```/g, '').trim()
+        const clean = findResult.text.replace(/```json|```/g, '').trim()
         pagePaths = JSON.parse(clean)
-      } catch {
-        pagePaths = []
-      }
+      } catch { pagePaths = [] }
 
-      // Step 3: Read each relevant page
+      // Step 3: Read pages
       const pageContents = []
       for (const path of pagePaths.slice(0, 8)) {
         setStatus(`reading ${path.split('/').pop()}…`)
         try {
           const content = await readFile(path)
-          const title = path.split('/').pop().replace('.md', '')
-          pageContents.push({ path, title, content: content.slice(0, 3000) })
-        } catch {
-          // Page listed in index but not found — skip
-        }
+          pageContents.push({ path, title: path.split('/').pop().replace('.md', ''), content: content.slice(0, 3000) })
+        } catch {}
       }
       setSources(pageContents.map(p => p.title))
 
-      // Step 4: Synthesise answer
-      setStatus('synthesising answer…')
+      // Step 4: Stream synthesis
+      setStatus('synthesising…')
       const pagesText = pageContents.length > 0
         ? pageContents.map(p => `## ${p.title}\n${p.content}`).join('\n\n---\n\n')
         : '(No relevant pages found in wiki)'
 
-      const answerText = await callClaude([{
+      const synthResult = await callClaudeStream([{
         role: 'user',
         content: SYNTHESISE_PROMPT(question, pagesText),
-      }], 2000)
+      }], 2000, (partial) => {
+        setStreaming(partial)
+        setStatus(null)
+      })
 
-      setAnswer(answerText)
-      setHistory(prev => [{ question, answer: answerText, sources: pageContents.map(p => p.title), persona: activePersona?.name }, ...prev.slice(0, 9)])
-      setStatus(null)
+      totalInput  += synthResult.usage?.input_tokens  || 0
+      totalOutput += synthResult.usage?.output_tokens || 0
+
+      const cost = calcCost(totalInput, totalOutput)
+      setUsage({ inputTokens: totalInput, outputTokens: totalOutput, cost })
+      setAnswer(synthResult.text)
+      setStreaming('')
+      setHistory(prev => [{ question, answer: synthResult.text, sources: pageContents.map(p => p.title), persona: activePersona?.name }, ...prev.slice(0, 9)])
 
     } catch (e) {
       setError(e.message)
@@ -166,6 +228,7 @@ export function WikiQuery() {
     const slug = question.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)
     const path = `wiki/query-results/${TODAY()}-${slug}.md`
     const sourcesYaml = sources.map(s => `  - "${s}"`).join('\n')
+    const costLine = usage ? `\n**Cost:** $${usage.cost.toFixed(5)} (${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out)` : ''
     const page = `---
 title: "${question}"
 type: query-result
@@ -177,8 +240,7 @@ tags: []
 ---
 
 **Question:** ${question}
-
-**Persona:** ${activePersona?.name || 'default'}
+**Persona:** ${activePersona?.name || 'default'}${costLine}
 
 ---
 
@@ -186,7 +248,6 @@ ${answer}
 `
     try {
       await writeFile(path, page)
-      // Append to log
       try {
         const log = await readFile('wiki/log.md')
         await writeFile('wiki/log.md', log + `\n## [${TODAY()}] query | ${question.slice(0, 60)}\n\nSaved to: ${path}\n`)
@@ -197,17 +258,14 @@ ${answer}
     }
   }
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleQuery()
-  }
+  const displayAnswer = answer || streaming
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
 
-      {/* Left — question input + history */}
+      {/* Left — input + history */}
       <div style={{ width: '340px', minWidth: '340px', borderRight: '1px solid var(--forge-border)', display: 'flex', flexDirection: 'column', padding: '20px' }}>
 
-        {/* Persona selector */}
         {personas.length > 0 && (
           <div style={{ marginBottom: '16px' }}>
             <Label>lens</Label>
@@ -225,10 +283,9 @@ ${answer}
 
         <Label>question</Label>
         <textarea
-          ref={inputRef}
           value={question}
-          onChange={e => { setQuestion(e.target.value); setAnswer(null); setSaved(false) }}
-          onKeyDown={handleKeyDown}
+          onChange={e => { setQuestion(e.target.value); setAnswer(null); setStreaming(''); setSaved(false) }}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleQuery() }}
           placeholder={`Ask anything across your wiki…\n\nExamples:\n• What are the common themes across my research on [topic]?\n• Summarise everything I know about [subject]\n• Compare what I've written about X versus Y\n• What are the open questions in my notes on [area]?\n• What should I prepare before my meeting on [topic]?\n\n⌘↵ to run`}
           style={{
             flex: 1, background: 'var(--forge-surface)', border: '1px solid var(--forge-border)',
@@ -250,15 +307,14 @@ ${answer}
             padding: '11px', borderRadius: '4px', letterSpacing: '0.05em',
             cursor: !question.trim() || running ? 'default' : 'pointer',
           }}
-        >{running ? `◌ ${status || 'thinking…'}` : '⌖ run query'}</button>
+        >{running ? `◌ ${status || 'synthesising…'}` : '⌖ run query'}</button>
 
-        {/* Session history */}
         {history.length > 0 && (
-          <div style={{ marginTop: '20px' }}>
+          <div style={{ marginTop: '20px', overflow: 'auto' }}>
             <Label>this session</Label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
               {history.map((h, i) => (
-                <button key={i} onClick={() => { setQuestion(h.question); setAnswer(h.answer); setSources(h.sources); setSaved(false) }}
+                <button key={i} onClick={() => { setQuestion(h.question); setAnswer(h.answer); setStreaming(''); setSources(h.sources); setSaved(false) }}
                   style={{
                     background: 'none', border: '1px solid var(--forge-border)', borderRadius: '3px',
                     color: 'var(--forge-muted)', fontFamily: 'JetBrains Mono, monospace',
@@ -275,10 +331,10 @@ ${answer}
       </div>
 
       {/* Right — answer */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', overflow: 'auto' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', overflow: 'hidden' }}>
 
-        {!answer && !error && !running && (
-          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.72rem', color: 'var(--forge-muted)', lineHeight: 2, marginTop: '8px' }}>
+        {!displayAnswer && !error && !running && (
+          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.72rem', color: 'var(--forge-muted)', lineHeight: 2 }}>
             ask a question — claude will search your wiki and synthesise an answer<br /><br />
             the more you've ingested, the better this gets
           </div>
@@ -290,11 +346,12 @@ ${answer}
           </div>
         )}
 
-        {answer && (
-          <>
+        {(displayAnswer || sources.length > 0) && (
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+
             {/* Sources */}
             {sources.length > 0 && (
-              <div style={{ marginBottom: '16px' }}>
+              <div style={{ marginBottom: '12px', flexShrink: 0 }}>
                 <Label>sources read</Label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                   {sources.map(s => (
@@ -308,34 +365,58 @@ ${answer}
               </div>
             )}
 
-            {/* Answer */}
-            <Label>answer</Label>
-            <div style={{
-              flex: 1, marginTop: '8px', fontFamily: 'DM Sans, sans-serif',
-              fontSize: '0.85rem', lineHeight: 1.8, color: 'var(--forge-text)',
-              whiteSpace: 'pre-wrap', overflow: 'auto',
-            }}>
-              {answer}
-            </div>
+            {/* Answer — scrollable */}
+            {displayAnswer && (
+              <>
+                <Label>answer {streaming && !answer ? <span style={{ color: 'var(--forge-accent)' }}>● streaming</span> : ''}</Label>
+                <div ref={answerRef} style={{
+                  flex: 1, marginTop: '8px', fontFamily: 'DM Sans, sans-serif',
+                  fontSize: '0.85rem', lineHeight: 1.8, color: 'var(--forge-text)',
+                  whiteSpace: 'pre-wrap', overflow: 'auto', paddingRight: '4px',
+                }}>
+                  {displayAnswer}
+                  {streaming && !answer && <span style={{ opacity: 0.4 }}>█</span>}
+                </div>
+              </>
+            )}
 
-            {/* Save */}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--forge-border)' }}>
-              {!saved ? (
-                <button onClick={handleSave} style={{
-                  background: 'var(--forge-accent)', border: 'none', color: '#000',
-                  fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.82rem',
-                  padding: '9px 16px', borderRadius: '4px', cursor: 'pointer', letterSpacing: '0.04em',
-                }}>▼ save to wiki</button>
-              ) : (
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.68rem', color: 'var(--forge-muted)', padding: '9px 0' }}>
-                  ✓ saved to wiki/query-results/
-                </span>
-              )}
-              <button onClick={() => { setAnswer(null); setSources([]); setSaved(false); setQuestion('') }} style={ghostBtn}>
-                clear
-              </button>
-            </div>
-          </>
+            {/* Usage + save bar */}
+            {answer && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                marginTop: '12px', paddingTop: '12px',
+                borderTop: '1px solid var(--forge-border)', flexShrink: 0,
+              }}>
+                {/* Token / cost summary */}
+                {usage && (
+                  <div style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: '0.62rem',
+                    color: 'var(--forge-muted)', display: 'flex', gap: '12px', flex: 1,
+                  }}>
+                    <span>↑ {usage.inputTokens.toLocaleString()} in</span>
+                    <span>↓ {usage.outputTokens.toLocaleString()} out</span>
+                    <span style={{ color: 'var(--forge-accent)' }}>${usage.cost.toFixed(5)}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {!saved ? (
+                    <button onClick={handleSave} style={{
+                      background: 'var(--forge-accent)', border: 'none', color: '#000',
+                      fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.78rem',
+                      padding: '7px 14px', borderRadius: '4px', cursor: 'pointer', letterSpacing: '0.04em',
+                    }}>▼ save</button>
+                  ) : (
+                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-muted)', padding: '7px 0' }}>
+                      ✓ saved
+                    </span>
+                  )}
+                  <button onClick={() => { setAnswer(null); setStreaming(''); setSources([]); setSaved(false); setQuestion(''); setUsage(null) }}
+                    style={ghostBtn}>clear</button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
