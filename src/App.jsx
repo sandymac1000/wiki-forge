@@ -1,30 +1,14 @@
 import { useState } from 'react'
-import { Inbox } from './components/Inbox.jsx'
-import { Vault } from './components/Vault.jsx'
-import { Runner } from './components/Runner.jsx'
-import { Variants } from './components/Variants.jsx'
-import { Improvements } from './components/Improvements.jsx'
-import { Registry } from './components/Registry.jsx'
 import { WikiIngest } from './components/WikiIngest.jsx'
+import { WikiQuery } from './components/WikiQuery.jsx'
 
 const TABS = [
-  { id: 'wiki',         label: 'Wiki Ingest',  glyph: '⊗' },
-  { id: 'inbox',        label: 'Inbox',        glyph: '⊕' },
-  { id: 'vault',        label: 'Vault',        glyph: '◈' },
-  { id: 'runner',       label: 'Runner',       glyph: '▶' },
-  { id: 'variants',     label: 'Variants',     glyph: '⌥' },
-  { id: 'improvements', label: 'Improvements', glyph: '↑' },
-  { id: 'registry',     label: 'Registry',     glyph: '≡' },
+  { id: 'ingest', label: 'Ingest',  glyph: '⊗' },
+  { id: 'query',  label: 'Query',   glyph: '⌖' },
 ]
 
 export default function App() {
-  const [tab, setTab] = useState('vault')
-  const [navState, setNavState] = useState({})
-
-  const navigateTo = (newTab, state = {}) => {
-    setNavState(state)
-    setTab(newTab)
-  }
+  const [tab, setTab] = useState('ingest')
 
   return (
     <div style={{ background: 'var(--forge-bg)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -56,13 +40,13 @@ export default function App() {
             border: '1px solid var(--forge-border)',
             padding: '1px 6px',
             borderRadius: '3px',
-          }}>v0.1.0</span>
+          }}>v0.2.0</span>
         </div>
         <nav style={{ display: 'flex', gap: '0', marginLeft: '1rem' }}>
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => navigateTo(t.id)}
+              onClick={() => setTab(t.id)}
               style={{
                 background: 'none',
                 border: 'none',
@@ -98,13 +82,8 @@ export default function App() {
         </div>
       </header>
       <main style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'wiki'         && <WikiIngest />}
-        {tab === 'inbox'        && <Inbox navigateTo={navigateTo} />}
-        {tab === 'vault'        && <Vault navigateTo={navigateTo} />}
-        {tab === 'runner'       && <Runner navigateTo={navigateTo} navState={navState} />}
-        {tab === 'variants'     && <Variants navigateTo={navigateTo} />}
-        {tab === 'improvements' && <Improvements navigateTo={navigateTo} />}
-        {tab === 'registry'     && <Registry navigateTo={navigateTo} />}
+        {tab === 'ingest' && <WikiIngest />}
+        {tab === 'query'  && <WikiQuery />}
       </main>
     </div>
   )
