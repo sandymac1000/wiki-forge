@@ -51,6 +51,8 @@ VITE_OBSIDIAN_TOKEN=your-token-here
 
 Your Obsidian token: **Obsidian Settings → Community Plugins → Local REST API → API Key**
 
+> **Important — use HTTP, not HTTPS.** The Local REST API plugin defaults to HTTPS but Wiki Forge connects over HTTP on port `27123`. In the plugin settings, confirm the HTTP port is `27123` and use the HTTP token (not the HTTPS one). No certificate setup required.
+
 ### Run
 
 ```bash
