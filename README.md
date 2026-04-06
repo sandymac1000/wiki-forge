@@ -1,71 +1,16 @@
-# Prompt Forge
+# Wiki Forge
 
-A prompt library and optimisation system built on Obsidian, with AI-assisted classification, typed context params, and a race-improve loop.
-
----
-
-## What problem does this solve?
-
-Most prompt management is a folder of markdown files with no structure, no metadata, and no way to know which prompts actually work. Prompt Forge treats prompts as first-class software artefacts with types, versions, ratings, and an evolutionary lifecycle.
+A personal knowledge base and prompt management system built on Obsidian, with AI-assisted document ingestion, classification, and a prompt race-improve loop.
 
 ---
 
-## Core concepts
+## What it does
 
-### Prompts as typed templates
+Wiki Forge has two jobs:
 
-Every prompt in the vault has frontmatter that defines its interface:
+**1. Wiki Ingest** — drop in any document (PDF, DOCX, PPTX, XLSX, URL, paste) and Claude classifies it, converts it to markdown, and files it into the right section of your Obsidian-backed knowledge wiki with proper frontmatter, TLDR, and index entries.
 
-```yaml
----
-title: Research Paper Digest
-category: research
-subcategory: paper-digest
-params: audience, style, paper
-description: Structured critical analysis of a research paper.
-version: 1
-rating: null
-last_used: null
----
-```
-
-The `params` field is the key innovation — it's a type system for prompts. It declares what context variables the prompt needs at runtime, so Runner can present the right input fields automatically.
-
-### The lifecycle
-
-```
-Inbox → Vault → Runner → Improvements
-                  ↕
-               Variants
-```
-
-**Inbox** — paste any raw prompt from anywhere (Twitter, papers, your own experiments). Claude classifies it, infers its params, and files it in your vault with proper frontmatter.
-
-**Vault** — browse, edit, rate, and clone your prompt library. The vault mirrors your Obsidian vault directly — every file is a real `.md` file you own.
-
-**Runner** — select a prompt, fill in its params, optionally fetch a paper by URL (arXiv, bioRxiv, PubMed), and run it. Rate the output 1–5 and add notes. Ratings feed directly into Improvements.
-
-**Variants** — explores the solution space *horizontally*. Given a base prompt, Claude generates 3 distinct approaches (analytical, concise, socratic). Race them on the same context simultaneously, see outputs side by side, vote for the winner. Only the winner is saved — to your vault, rated 4/5, ready for Improvements.
-
-**Improvements** — climbs the hill *vertically*. Takes any rated prompt (1–4), reads your rating and notes, proposes a specific rewrite with a diff view showing exactly what changed. Approve → version bumps, original archived, new version written to vault. Rename on approve if the improved prompt has become something distinct.
-
-**Registry** — portfolio view across all prompts. Filter by category, search by title/description/params, sort by rating or last used. Shows the prompt slug (stable identity) primary, title secondary.
-
----
-
-## Variants vs Improvements — the key distinction
-
-**Variants** explores different *instruction approaches* to the same job:
-- "Analyse this company" → Analytical (Porter's Five Forces) vs Concise (bullet assessment) vs Socratic (question-driven)
-- You race them on real context and vote — empirical selection, not preference
-- The winning *instruction set* is saved as a template
-
-**Improvements** evolves a single prompt iteratively:
-- Claude reads the prompt + your feedback ("output was too generic, lacked quantitative benchmarks")
-- Proposes specific edits to the prompt text itself — a diff you can approve, reject, or modify
-- Version history is preserved in `_archive/`
-
-Together: Variants explores the solution space horizontally. Improvements climbs the hill vertically. Use Variants first to find the right approach, then Improvements to refine it.
+**2. Prompt Library** — treats prompts as first-class software artefacts with types, versions, ratings, and an evolutionary lifecycle (classify → run → variants → improvements).
 
 ---
 
@@ -76,6 +21,12 @@ Together: Variants explores the solution space horizontally. Improvements climbs
 - [Obsidian](https://obsidian.md) with the [Local REST API plugin](https://github.com/coddingtonbear/obsidian-local-rest-api) installed and enabled
 - Node.js 18+
 - An Anthropic API key
+- Python 3 with conversion tools (for Wiki Ingest file uploads):
+
+```bash
+pip install 'markitdown[all]' pymupdf4llm pptx2md
+brew install pandoc
+```
 
 ### Install
 
@@ -91,14 +42,14 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` (never commit this file — it's in `.gitignore`):
 
 ```
 VITE_ANTHROPIC_API_KEY=sk-ant-...
 VITE_OBSIDIAN_TOKEN=your-token-here
 ```
 
-Your Obsidian token is in **Obsidian Settings → Community Plugins → Local REST API → API Key**.
+Your Obsidian token: **Obsidian Settings → Community Plugins → Local REST API → API Key**
 
 ### Run
 
@@ -106,84 +57,77 @@ Your Obsidian token is in **Obsidian Settings → Community Plugins → Local RE
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5173`. Obsidian must be running.
+
+---
+
+## Wiki Ingest
+
+The first tab. Three input modes:
+
+- **Paste** — notes, emails, thread copy, raw thoughts
+- **URL** — fetches and converts any article, paper, or web page
+- **File** — PDF, DOCX, PPTX, XLSX, MD, TXT
+
+Claude classifies the content into the right wiki section (`summaries`, `entities`, `concepts`, `comparisons`, `query-results`), generates a TLDR and tags, and saves it directly to the vault. `wiki/log.md` and `wiki/INDEX.md` are updated automatically.
+
+---
+
+## Prompt lifecycle
+
+```
+Inbox → Vault → Runner → Improvements
+                  ↕
+               Variants
+```
+
+**Inbox** — paste any raw prompt. Claude classifies it and files it with proper frontmatter.
+
+**Vault** — browse, edit, rate, and clone your prompt library.
+
+**Runner** — select a prompt, fill in params, optionally fetch a paper by URL, run and rate.
+
+**Variants** — generates 3 instruction approaches side-by-side. Race them, vote for the winner.
+
+**Improvements** — AI-proposed rewrite with diff view. Approve → version bumps, original archived.
+
+**Registry** — portfolio view. Filter, search, sort by rating or last used.
 
 ---
 
 ## Vault structure
 
-Prompt Forge expects prompts under a `prompts/` folder in your vault:
-
 ```
-prompts/
-  _context/
-    sandy.md          ← injected into every run (your background, style prefs)
-    personas.md       ← available personas for Runner
-  _templates/
-    vc/               ← categorised by type
-    research/
-    learning/
-    reasoning/
-    tools/
-  _variants/
-    paper-digest/     ← race winners, per base prompt
-      analytical-bioinformatics.md
-  _archive/
-    board-prep-v1.md  ← previous versions, auto-archived on approve
+your-vault/
+├── wiki/                   ← managed by Wiki Ingest
+│   ├── INDEX.md
+│   ├── log.md
+│   ├── summaries/
+│   ├── entities/
+│   ├── concepts/
+│   ├── comparisons/
+│   └── query-results/
+├── raw/                    ← immutable source documents
+│   └── assets/
+└── prompts/                ← managed by prompt tabs
+    ├── _context/
+    │   └── sandy.md        ← injected into every Runner run
+    ├── _templates/
+    ├── _variants/
+    └── _archive/
 ```
 
-The `_context/sandy.md` file is injected into every Runner execution as background context. Edit it to match your background, working style, and output preferences.
-
 ---
 
-## Context injection
-
-Runner automatically injects `_context/sandy.md` and `_context/personas.md` as the system prompt prefix before every run. This means your personal context (role, style, portfolio) is always present without you having to repeat it.
-
-The **copy full prompt** button assembles the complete prompt — context + template + params — for pasting into Claude.ai web when you need to attach PDFs or other files.
-
----
-
-## Paper fetch
-
-Runner and Variants support fetching paper content directly by URL:
-
-- **arXiv** — `arxiv.org/abs/2401.12345` or `arxiv.org/pdf/...`
-- **bioRxiv** — `biorxiv.org/content/...`
-- **PubMed** — `pubmed.ncbi.nlm.nih.gov/...`
-- **Generic URLs** — best effort HTML extraction
-
-Fetched content is injected into the run automatically. If no paper is provided and the prompt mentions "paper", "document", or "materials", Claude will ask for them before proceeding.
-
----
-
-## Prompt identity
-
-The filename slug is the stable identity of a prompt — it never changes unless you explicitly move the file. The frontmatter `title` is a human-readable label that can evolve as you rename through improvements.
-
-This means:
-- Version history (`v1`, `v2`) tracks a single slug
-- Variant win/loss records are keyed to the slug
-- Registry always shows slug primary, title secondary
-
----
-
-## Limitations
-
-Prompt Forge is a **local-first** application. The Obsidian Local REST API runs on `localhost:27123` — it cannot be accessed from a deployed URL. This means:
-
-- Runner, Vault, Variants, Improvements, Registry all require Obsidian running locally
-- Inbox classification and the Anthropic API calls work from any deployment
-- A fully cloud-hosted version would require a different vault backend
-
----
-
-## Stack
+## Architecture
 
 - React + Vite + Tailwind
 - Obsidian Local REST API (vault read/write)
-- Anthropic Claude API (classification, improvement proposals, variant generation)
+- Anthropic Claude API (classification, ingest, improvement, variants)
+- Vite middleware for document conversion (markitdown / pandoc / pymupdf4llm / pptx2md)
 - No database — the vault is the source of truth
+
+**Local-first.** The Obsidian Local REST API runs on `localhost:27123`. Obsidian must be open and running for vault operations.
 
 ---
 
