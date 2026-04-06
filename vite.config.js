@@ -6,6 +6,7 @@ import { spawn } from 'child_process'
 import { writeFileSync, readFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, extname } from 'path'
+import TurndownService from 'turndown'
 
 // ── Paper fetch proxy ────────────────────────────────────────────────────────
 
@@ -60,15 +61,23 @@ function runCmd(cmd, args) {
   })
 }
 
+async function runMarkitdown(path) {
+  // Try CLI first, fall back to python3 -m markitdown
+  try { return await runCmd('markitdown', [path]) } catch {}
+  return await runCmd('python3', ['-m', 'markitdown', path])
+}
+
 async function convertToMarkdown(type, filename, contentBase64, url) {
   if (type === 'text') return contentBase64 // reused field for plain text passthrough
 
   if (type === 'url') {
-    try {
-      return await runCmd('markitdown', [url])
-    } catch {
-      throw new Error('markitdown not installed. Run: pip install "markitdown[all]"')
-    }
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WikiForge/1.0)' }
+    })
+    if (!res.ok) throw new Error(`Failed to fetch URL: ${res.status}`)
+    const html = await res.text()
+    const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+    return td.turndown(html)
   }
 
   if (type === 'file') {
@@ -89,7 +98,7 @@ async function convertToMarkdown(type, filename, contentBase64, url) {
             tmp,
           ])
         } catch {
-          return await runCmd('markitdown', [tmp])
+          return await runMarkitdown(tmp)
         }
       }
 
@@ -97,7 +106,7 @@ async function convertToMarkdown(type, filename, contentBase64, url) {
         try {
           return await runCmd('pandoc', [tmp, '--wrap=none', '-t', 'gfm'])
         } catch {
-          return await runCmd('markitdown', [tmp])
+          return await runMarkitdown(tmp)
         }
       }
 
@@ -109,12 +118,12 @@ async function convertToMarkdown(type, filename, contentBase64, url) {
           try { unlinkSync(outPath) } catch {}
           return result
         } catch {
-          return await runCmd('markitdown', [tmp])
+          return await runMarkitdown(tmp)
         }
       }
 
       // .xlsx, .xls, .html, .htm — markitdown handles all
-      return await runCmd('markitdown', [tmp])
+      return await runMarkitdown(tmp)
 
     } finally {
       try { unlinkSync(tmp) } catch {}
