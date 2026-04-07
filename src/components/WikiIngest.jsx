@@ -5,15 +5,17 @@ import { Suggestions } from './Suggestions.jsx'
 
 const WIKI_CLASSIFIER_PROMPT = `You are a knowledge base librarian. Analyse the content provided and return ONLY a JSON object with no preamble, no markdown, no backticks.
 
+IMPORTANT: Title, slug, description, and tags must reflect the SUBJECT MATTER — the ideas, people, companies, events, or arguments in the content. Never describe the file format, document type, or technical structure. If the content appears to be mostly raw HTML, CSS, or JavaScript with no readable text, set title to "Unreadable page — JS-rendered or paywalled" and source_type to "article".
+
 Return exactly this structure:
 {
-  "title": "Descriptive title (3-8 words)",
+  "title": "Subject-matter title capturing the core idea or topic (3-8 words)",
   "slug": "kebab-case-slug",
   "source_type": "report|article|transcript|thread|email|notes|data|research",
-  "wiki_section": "summaries|entities|concepts|comparisons|query-results",
-  "description": "One sentence TLDR describing what this content covers",
-  "tags": ["tag1", "tag2", "tag3"],
-  "key_entities": ["Name of specific person, organisation, or project mentioned"],
+  "wiki_section": "summaries|entities|concepts|comparisons|query-results|scheduling",
+  "description": "One sentence TLDR of what argument, finding, or insight this content contains",
+  "tags": ["topic-tag", "domain-tag", "concept-tag"],
+  "key_entities": ["Specific people, companies, funds, or projects mentioned by name"],
   "suggested_path": "wiki/[wiki_section]/[slug].md"
 }
 
@@ -23,8 +25,9 @@ wiki_section rules — pick the single best fit:
 - concepts: mental models, frameworks, recurring ideas, theories
 - comparisons: head-to-head analysis of two or more specific things
 - query-results: answers to specific questions worth preserving as reference
+- scheduling: personal time management, task systems, to-do approaches, calendar and workflow design
 
-Use descriptive tags relevant to the content. Examples: ai, research, strategy, technology, risk, people, process, learning, analysis`
+Tags should be subject-matter keywords: company names, domains (ai, biotech, climate), concepts (unit-economics, founder-mode, defensibility), not format words like "document" or "webpage".`
 
 const TODAY = new Date().toISOString().split('T')[0]
 
@@ -48,6 +51,8 @@ export function WikiIngest() {
   const [converting, setConverting] = useState(false)
   const [converted, setConverted] = useState(null) // { markdown, detected_type }
   const [classifying, setClassifying] = useState(false)
+  const [summarising, setSummarising] = useState(false)
+  const [summary, setSummary] = useState(null)
   const [proposal, setProposal] = useState(null)
   const [editPath, setEditPath] = useState('')
   const [saving, setSaving] = useState(false)
@@ -57,6 +62,9 @@ export function WikiIngest() {
   const [personas, setPersonas] = useState([])
   const [activePersona, setActivePersona] = useState(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [connections, setConnections] = useState([])
+  const [showConnections, setShowConnections] = useState(false)
+  const [linking, setLinking] = useState(false)
   const fileRef = useRef()
 
   // Load personas from vault on mount
@@ -71,6 +79,7 @@ export function WikiIngest() {
     setPasteText(''); setUrlValue(''); setFileName(null); setFileBase64(null)
     setConverted(null); setProposal(null); setEditPath(''); setSaved(false)
     setSavedPath(null); setError(null); setShowSuggestions(false)
+    setSummary(null); setConnections([]); setShowConnections(false); setLinking(false)
   }
 
   // ── Step 1: Convert input to markdown ──────────────────────────────────────
@@ -87,18 +96,16 @@ export function WikiIngest() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'url', url: urlValue.trim() }),
         })
-        if (!res.ok) throw new Error(`Convert failed: ${res.status}`)
         result = await res.json()
-        if (result.error) throw new Error(result.error)
+        if (!res.ok || result.error) throw new Error(result.error || `Convert failed: ${res.status}`)
       } else if (inputMode === 'file' && fileBase64) {
         const res = await fetch('/convert', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'file', filename: fileName, content_base64: fileBase64 }),
         })
-        if (!res.ok) throw new Error(`Convert failed: ${res.status}`)
         result = await res.json()
-        if (result.error) throw new Error(result.error)
+        if (!res.ok || result.error) throw new Error(result.error || `Convert failed: ${res.status}`)
       } else {
         throw new Error('No input provided')
       }
@@ -151,6 +158,130 @@ export function WikiIngest() {
     setClassifying(false)
   }
 
+  // ── Step 2b: Summarise with Claude ────────────────────────────────────────
+
+  const summarise = async (markdown, prop) => {
+    const personaContext = activePersona ? buildPersonaContext(activePersona) : ''
+    const lensLine = personaContext ? `\n\nReviewing through this lens:\n${personaContext}\n` : ''
+    const prompt = `You are a knowledge librarian. Write a structured wiki summary of the source document below.${lensLine}
+
+Classification context — title: "${prop.title}", type: ${prop.source_type}, tags: ${(prop.tags || []).join(', ')}.
+
+Write ONLY the markdown body. No frontmatter. Use exactly this structure:
+
+## Key Points
+- Specific findings, arguments, or data points (with numbers where available)
+
+## Open Questions
+- What does this leave unresolved or worth investigating further?
+
+## Counter-Arguments and Data Gaps
+- Strongest critique of the claims made; what evidence is weak or missing
+
+## Key Entities
+Brief notes on the most important people, companies, funds, or projects mentioned.
+
+Be specific and analytical. Extract actual claims and numbers. Do not describe the document format — summarise the ideas.
+
+Source document:
+
+${markdown.slice(0, 14000)}`
+
+    const res = await fetch('/anthropic/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 1800,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error.message)
+    return data.content?.[0]?.text || ''
+  }
+
+  // ── Proposed Connections: find + link ─────────────────────────────────────
+
+  const findConnections = async (prop, savedEditPath) => {
+    try {
+      const indexText = await readFile('wiki/INDEX.md')
+      // Capture full row to match against TLDR as well as title/path
+      const rowRegex = /\|\s*\[([^\]]+)\]\(([^)]+)\)\s*\|([^|]*)\|[^|]*\|[^|]*\|/g
+      const candidates = []
+      let match
+      while ((match = rowRegex.exec(indexText)) !== null) {
+        const title = match[1].trim()
+        const path = match[2].trim()
+        const tldr = match[3].trim()
+        if (path === savedEditPath) continue
+        // Match against title + slug + TLDR — catches entities in TLDR but not in title
+        const rowText = `${title} ${path} ${tldr}`.toLowerCase()
+        const sectionMatch = path.match(/^wiki\/([^/]+)\//)
+        const section = sectionMatch ? sectionMatch[1] : 'wiki'
+        let reason = null
+        // Entity match — min 3 chars to avoid noise
+        for (const entity of (prop.key_entities || [])) {
+          if (entity && entity.length >= 3 && rowText.includes(entity.toLowerCase())) {
+            reason = 'entity match'
+            break
+          }
+        }
+        // Tag match — min 4 chars to avoid noise
+        if (!reason) {
+          for (const tag of (prop.tags || [])) {
+            if (tag && tag.length >= 4 && rowText.includes(tag.toLowerCase())) {
+              reason = 'tag match'
+              break
+            }
+          }
+        }
+        // "same section" intentionally removed — too broad, generates noise
+        if (reason) {
+          candidates.push({ title, path, section, reason, checked: false })
+        }
+      }
+      return candidates
+    } catch {
+      return []
+    }
+  }
+
+  const handleLink = async (approvedConnections) => {
+    setLinking(true)
+    try {
+      for (const conn of approvedConnections) {
+        if (!conn.checked) continue
+        let content = ''
+        try { content = await readFile(conn.path) } catch { continue }
+        // Append editPath to sources: array in frontmatter
+        if (content.includes('sources:')) {
+          // Find the sources block and append
+          content = content.replace(
+            /^(sources:\s*\n)((?:\s+-[^\n]*\n)*)/m,
+            (_, header, items) => `${header}${items}  - "${editPath}"\n`
+          )
+        }
+        // Append cross-reference footer
+        const footer = `\n\n---\n*Also referenced by: [${proposal.title}](${editPath})*`
+        if (!content.includes(`Also referenced by: [${proposal.title}]`)) {
+          content = content + footer
+        }
+        await writeFile(conn.path, content)
+      }
+    } catch (e) {
+      setError(`Linking failed: ${e.message}`)
+    }
+    setLinking(false)
+    // Mark linked connections as done — hide panel
+    setShowConnections(false)
+  }
+
   // ── Step 3: Save to vault ──────────────────────────────────────────────────
 
   const handleSave = async () => {
@@ -160,28 +291,55 @@ export function WikiIngest() {
       const source = inputMode === 'url' ? urlValue : (fileName || 'pasted content')
       const typeMap = {
         summaries: 'summary', entities: 'entity', concepts: 'concept',
-        comparisons: 'comparison', 'query-results': 'query-result',
+        comparisons: 'comparison', 'query-results': 'query-result', scheduling: 'scheduling',
       }
       const pageType = typeMap[proposal.wiki_section] || 'summary'
       const tagsYaml = (proposal.tags || []).map(t => `  - ${t}`).join('\n')
-      const entitiesYaml = (proposal.key_entities || []).map(e => `  - "${e}"`).join('\n')
+      const rawPath = `raw/${TODAY}-${proposal.slug}.md`
 
+      // Save raw converted text to raw/ (immutable source)
+      const rawPage = `---
+title: "${proposal.title}"
+type: raw-source
+source: "${source}"
+created: ${TODAY}
+---
+
+${converted.markdown.trim()}
+`
+      await writeFile(rawPath, rawPage)
+
+      // Generate structured summary
+      setSummarising(true)
+      let summaryBody
+      try {
+        summaryBody = await summarise(converted.markdown, proposal)
+        setSummary(summaryBody)
+      } catch (e) {
+        // Fall back to raw text if summarisation fails
+        summaryBody = converted.markdown.trim()
+        console.error('Summarise failed, using raw text:', e.message)
+      }
+      setSummarising(false)
+
+      // Save structured summary to wiki/
       const page = `---
 title: "${proposal.title}"
 type: ${pageType}
 sources:
   - "${source}"
+source_count: 1
+raw: "${rawPath}"
 created: ${TODAY}
 updated: ${TODAY}
 tags:
 ${tagsYaml}
+status: draft
 ---
 
 **TLDR:** ${proposal.description}
 
----
-
-${converted.markdown.trim()}
+${summaryBody}
 `
       await writeFile(editPath, page)
       await appendToLog(proposal.title, proposal.wiki_section, source)
@@ -190,7 +348,13 @@ ${converted.markdown.trim()}
       setSaved(true)
       setSavedPath(editPath)
       setShowSuggestions(true)
+      const candidates = await findConnections(proposal, editPath)
+      if (candidates.length > 0) {
+        setConnections(candidates)
+        setShowConnections(true)
+      }
     } catch (e) {
+      setSummarising(false)
       setError(`Save failed: ${e.message}`)
     }
     setSaving(false)
@@ -211,7 +375,7 @@ ${converted.markdown.trim()}
       const sectionMap = {
         'summaries': '## Summaries', 'entities': '## Entities',
         'concepts': '## Concepts', 'comparisons': '## Comparisons',
-        'query-results': '## Query Results',
+        'query-results': '## Query Results', 'scheduling': '## Scheduling',
       }
       const section = proposal?.wiki_section
       const header = sectionMap[section]
@@ -252,7 +416,7 @@ ${converted.markdown.trim()}
     (inputMode === 'file' && fileBase64)
   )
 
-  const isWorking = converting || classifying
+  const isWorking = converting || classifying || summarising
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -465,16 +629,107 @@ ${converted.markdown.trim()}
                 padding: '10px', cursor: saving || saved ? 'default' : 'pointer',
                 borderRadius: '4px', letterSpacing: '0.05em', opacity: saving ? 0.7 : 1,
               }}
-            >{saved ? '✓ saved to wiki' : saving ? 'saving…' : '▼ save to wiki'}</button>
+            >{saved ? '✓ saved to wiki' : summarising ? '⟳ summarising…' : saving ? 'saving…' : '▼ save to wiki'}</button>
 
             {saved && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
                 <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem', color: 'var(--forge-muted)' }}>
                   ↳ {editPath}<br />
+                  ↳ raw/{TODAY}-{proposal?.slug}.md<br />
                   ↳ log.md updated<br />
                   ↳ INDEX.md updated
                 </div>
                 <button onClick={reset} style={{ ...ghostBtn, padding: '8px' }}>+ ingest another</button>
+              </div>
+            )}
+
+            {showConnections && connections.length > 0 && (
+              <div style={{
+                border: '1px solid var(--forge-border)', borderRadius: '4px',
+                overflow: 'hidden', marginTop: '4px',
+              }}>
+                {/* Panel header */}
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '7px 10px', borderBottom: '1px solid var(--forge-border)',
+                  background: 'var(--forge-surface)',
+                }}>
+                  <span style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem',
+                    color: 'var(--forge-muted)', textTransform: 'uppercase', letterSpacing: '0.1em',
+                  }}>Proposed Connections</span>
+                  <button
+                    onClick={() => setShowConnections(false)}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--forge-muted)',
+                      fontFamily: 'JetBrains Mono, monospace', fontSize: '0.65rem',
+                      cursor: 'pointer', padding: '0 2px', lineHeight: 1,
+                    }}
+                  >dismiss</button>
+                </div>
+
+                {/* Candidate rows */}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {connections.map((conn, i) => (
+                    <label
+                      key={conn.path}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        padding: '7px 10px', cursor: 'pointer',
+                        borderBottom: i < connections.length - 1 ? '1px solid var(--forge-border)' : 'none',
+                        background: conn.checked ? 'rgba(255,255,255,0.03)' : 'transparent',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={conn.checked}
+                        onChange={e => setConnections(prev =>
+                          prev.map((c, j) => j === i ? { ...c, checked: e.target.checked } : c)
+                        )}
+                        style={{ accentColor: 'var(--forge-accent)', flexShrink: 0 }}
+                      />
+                      <span
+                        title={conn.path}
+                        style={{
+                          fontFamily: 'JetBrains Mono, monospace', fontSize: '0.7rem',
+                          color: 'var(--forge-text)', flex: 1, overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}
+                      >{conn.title.length > 32 ? conn.title.slice(0, 32) + '…' : conn.title}</span>
+                      <span style={{
+                        fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem',
+                        color: 'var(--forge-muted)', background: 'var(--forge-surface)',
+                        border: '1px solid var(--forge-border)', borderRadius: '3px',
+                        padding: '1px 5px', flexShrink: 0,
+                      }}>{conn.section}</span>
+                      <span style={{
+                        fontFamily: 'JetBrains Mono, monospace', fontSize: '0.6rem',
+                        color: 'var(--forge-accent)', flexShrink: 0,
+                      }}>{conn.reason}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Footer action */}
+                <div style={{ padding: '8px 10px', borderTop: '1px solid var(--forge-border)', background: 'var(--forge-surface)' }}>
+                  <button
+                    onClick={() => handleLink(connections)}
+                    disabled={linking || connections.every(c => !c.checked)}
+                    style={{
+                      background: connections.some(c => c.checked) ? 'var(--forge-accent)' : 'var(--forge-surface)',
+                      border: `1px solid ${connections.some(c => c.checked) ? 'var(--forge-accent)' : 'var(--forge-border)'}`,
+                      color: connections.some(c => c.checked) ? '#000' : 'var(--forge-muted)',
+                      fontFamily: 'JetBrains Mono, monospace', fontSize: '0.68rem',
+                      padding: '5px 12px', cursor: (linking || connections.every(c => !c.checked)) ? 'default' : 'pointer',
+                      borderRadius: '3px', opacity: linking ? 0.7 : 1,
+                    }}
+                  >
+                    {linking
+                      ? '◌ linking…'
+                      : `Link selected (${connections.filter(c => c.checked).length})`
+                    }
+                  </button>
+                </div>
               </div>
             )}
 
